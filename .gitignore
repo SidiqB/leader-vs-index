@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+data_cache/
+.DS_Store
+# animations are large; keep only the S&P 500 one in the repo
+results/*/race.gif
+!results/sp500/race.gif

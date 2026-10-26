@@ -17,6 +17,9 @@ Two models:
     - if your company falls to #3 or lower (``drop_rank``), you sell straight away
       and buy the current #1;
     - optional transaction cost per switch (``cost_bps``).
+
+Both models can also pay capital gains tax on every switch (see ``TaxConfig``). The
+index is buy-and-hold, so it only owes tax once, when you finally sell.
 """
 
 from __future__ import annotations
@@ -54,6 +57,31 @@ class StrategyResult:
     holding: pd.Series  # ticker held at the end of each day
     trades: pd.DataFrame  # one row per switch
     ranks_of_holding: pd.Series = field(default_factory=pd.Series)
+    tax_paid: float = 0.0  # capital gains tax paid on switches along the way
+    exit_tax: float = 0.0  # tax that would be due if you sold everything on the last day
+
+
+@dataclass(frozen=True)
+class TaxConfig:
+    """Capital gains tax on realised gains.
+
+    Every switch is a sale, so any gain since you bought that company is taxed right
+    then; the tax leaves the portfolio and stops compounding. Losses are carried
+    forward and offset later gains. Positions held less than ``short_term_days`` can
+    be taxed at a different (US-style short-term) rate.
+    """
+    rate: float = 0.0
+    short_term_rate: float | None = None
+    short_term_days: int = 365
+
+    def rate_for(self, held_days: int) -> float:
+        if self.short_term_rate is not None and held_days < self.short_term_days:
+            return self.short_term_rate
+        return self.rate
+
+    @property
+    def active(self) -> bool:
+        return self.rate > 0 or bool(self.short_term_rate)
 
 
 def membership_mask(index: IndexDef, dates: pd.DatetimeIndex, tickers: list[str]) -> pd.DataFrame:
@@ -73,7 +101,7 @@ def daily_ranks(caps: pd.DataFrame, eligible: pd.DataFrame) -> pd.DataFrame:
 
 
 def run_strategy(cfg: StrategyConfig, index: IndexDef, md: MarketData, start: str, end: str | None = None,
-                 capital: float = 10_000.0) -> StrategyResult:
+                 capital: float = 10_000.0, tax: TaxConfig = TaxConfig()) -> StrategyResult:
     caps = md.market_cap.loc[start:end]
     tr = md.total_return.loc[start:end]
     dates = caps.index
@@ -101,6 +129,20 @@ def run_strategy(cfg: StrategyConfig, index: IndexDef, md: MarketData, start: st
     holding = []
     held_rank = np.full(len(dates), np.nan)
     trades = []
+    basis = 0.0  # cost basis of the current position
+    bought_on: pd.Timestamp | None = None
+    loss_carry = 0.0
+    tax_paid = 0.0
+
+    def realise(gain: float, held_days: int) -> float:
+        """Tax due on a realised gain, using up carried-forward losses first."""
+        nonlocal loss_carry
+        if gain <= 0:
+            loss_carry -= gain
+            return 0.0
+        used = min(loss_carry, gain)
+        loss_carry -= used
+        return (gain - used) * tax.rate_for(held_days)
 
     rank_vals = ranks.to_numpy()
     col = {t: i for i, t in enumerate(tickers)}
@@ -136,9 +178,16 @@ def run_strategy(cfg: StrategyConfig, index: IndexDef, md: MarketData, start: st
                     target, reason = today_leader, f"new #1 for {(d - lead_since).days} days"
 
         if target != held:
-            value *= 1.0 - (cost if held is not None else cost / 2)
-            trades.append({"date": d, "sold": held, "bought": target, "reason": reason, "value_after": value})
-            held = target
+            tax_due = 0.0
+            if held is not None:
+                value *= 1.0 - cost / 2  # selling cost
+                tax_due = realise(value - basis, (d - bought_on).days)
+                value -= tax_due
+                tax_paid += tax_due
+            value *= 1.0 - cost / 2  # buying cost
+            trades.append({"date": d, "sold": held, "bought": target, "reason": reason, "tax_paid": tax_due,
+                           "value_after": value})
+            held, basis, bought_on = target, value, d
 
         equity[i] = value
         holding.append(held)
@@ -149,8 +198,10 @@ def run_strategy(cfg: StrategyConfig, index: IndexDef, md: MarketData, start: st
         config=cfg,
         equity=pd.Series(equity, index=dates, name=cfg.name),
         holding=pd.Series(holding, index=dates, name=cfg.name),
-        trades=pd.DataFrame(trades, columns=["date", "sold", "bought", "reason", "value_after"]),
+        trades=pd.DataFrame(trades, columns=["date", "sold", "bought", "reason", "tax_paid", "value_after"]),
         ranks_of_holding=pd.Series(held_rank, index=dates),
+        tax_paid=tax_paid,
+        exit_tax=realise(value - basis, (dates[-1] - bought_on).days) if held is not None else 0.0,
     )
 
 

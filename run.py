@@ -16,9 +16,9 @@ import pandas as pd
 from tabulate import tabulate
 
 from leadertrack.analysis import (fmt_summary, holding_periods, leader_history, run_backtest, summary_table,
-                                  time_held, yearly_returns)
+                                  tax_comparison, time_held, yearly_returns)
 from leadertrack.indices import INDICES
-from leadertrack.strategies import StrategyConfig
+from leadertrack.strategies import StrategyConfig, TaxConfig
 
 ROOT = Path(__file__).resolve().parent
 
@@ -53,17 +53,37 @@ def run_one(key: str, a) -> None:
     from leadertrack import plots
 
     print(f"\n=== {INDICES[key].name} ===")
+    tax = TaxConfig(rate=a.tax_rate / 100,
+                    short_term_rate=None if a.short_term_tax_rate is None else a.short_term_tax_rate / 100)
     bt = run_backtest(key, start=a.start, end=a.end, capital=a.capital, strategies=build_strategies(a),
-                      offline=a.offline, progress=lambda f, msg: print(f"\r  {msg:<40}", end="", flush=True))
+                      offline=a.offline, tax=tax, progress=lambda f, msg: print(f"\r  {msg:<40}", end="", flush=True))
     print("\r" + " " * 50)
-    out = ROOT / "results" / key
+    out = ROOT / a.out / key
     out.mkdir(parents=True, exist_ok=True)
 
     summary = summary_table(bt)
     yearly = yearly_returns(bt)
     shown = fmt_summary(summary, bt.capital)
-    print(tabulate(shown[["Final value", "Total return", "CAGR", "CAGR vs index", "Volatility", "Max drawdown",
-                          "Sharpe (rf=0)", "Trades"]], headers="keys", tablefmt="rounded_outline"))
+    cols = ["Final value", "Total return", "CAGR", "CAGR vs index", "Volatility", "Max drawdown", "Sharpe (rf=0)",
+            "Trades"]
+    if tax.active:
+        print("Values below already have the tax paid on each switch taken out (before the final sale).")
+    print(tabulate(shown[cols], headers="keys", tablefmt="rounded_outline"))
+    taxcmp = None
+    if tax.active:
+        untaxed = run_backtest(key, start=a.start, end=a.end, capital=a.capital, strategies=build_strategies(a),
+                               md=bt.md)
+        taxcmp = tax_comparison(bt, untaxed)
+        taxcmp.to_csv(out / "tax_comparison.csv")
+        taxcmp_fmt = taxcmp.copy().astype(object)
+        for c in taxcmp:
+            taxcmp_fmt[c] = taxcmp[c].map((lambda v: f"{v:+.1%}") if "vs index" in c else
+                                          (lambda v: f"{v:.1%}") if ("CAGR" in c or c == "Lost to tax") else
+                                          (lambda v: f"{v:,.0f}"))
+        print(f"\nBefore vs after capital gains tax ({a.tax_rate:g}%"
+              + (f", {a.short_term_tax_rate:g}% if held < 1 year" if a.short_term_tax_rate is not None else "")
+              + "). The strategies pay tax at every switch; the index only pays once, when you sell at the end.")
+        print(tabulate(taxcmp_fmt, headers="keys", tablefmt="rounded_outline"))
     print("\nCalendar-year returns")
     print(tabulate((yearly * 100).round(1), headers="keys", tablefmt="simple", floatfmt="+.1f"))
 
@@ -74,8 +94,12 @@ def run_one(key: str, a) -> None:
     bt.equity.to_csv(out / "equity_curves.csv")
     md = [f"# {bt.index.name} — always own the #1 company vs the index\n",
           f"Period: {bt.equity.index[0]:%Y-%m-%d} to {bt.equity.index[-1]:%Y-%m-%d}. "
-          f"Start capital {bt.capital:,.0f} {bt.index.currency}. Benchmark: {bt.index.benchmark_name}.\n",
-          "## Summary\n", shown.to_markdown(), "\n## Calendar-year returns (%)\n",
+          f"Start capital {bt.capital:,.0f} {bt.index.currency}. Benchmark: {bt.index.benchmark_name}. "
+          f"Capital gains tax: {a.tax_rate:g}%"
+          + (f" ({a.short_term_tax_rate:g}% if held under a year)" if a.short_term_tax_rate is not None else "")
+          + ".\n",
+          "## Summary\n", shown.to_markdown(),
+          *(["\n## Before vs after capital gains tax\n", taxcmp_fmt.to_markdown()] if taxcmp is not None else []), "\n## Calendar-year returns (%)\n",
           (yearly * 100).round(1).to_markdown(), "\n## Share of time in each company\n",
           (time_held(bt) * 100).round(1).to_markdown()]
     for r in bt.results:
@@ -99,7 +123,8 @@ def main(argv=None):
     p = argparse.ArgumentParser(description="Backtest 'always own the most valuable company' against an index.")
     p.add_argument("--index", choices=list(INDICES), help="index to test (omit for a menu)")
     p.add_argument("--all", action="store_true", help="run every index")
-    p.add_argument("--start", default="2008-01-01")
+    p.add_argument("--years", type=float, default=20, help="how many years back to start (ignored if --start)")
+    p.add_argument("--start", default=None, help="start date, e.g. 2008-01-01")
     p.add_argument("--end", default=None)
     p.add_argument("--capital", type=float, default=10_000)
     p.add_argument("--confirm-days", type=int, nargs="+", default=[7, 30],
@@ -108,9 +133,16 @@ def main(argv=None):
     p.add_argument("--drop-rank", type=int, default=3, help="patient model: sell immediately if holding falls to this rank")
     p.add_argument("--cost-bps", type=float, default=10, help="patient model: cost per switch in basis points")
     p.add_argument("--naive-cost-bps", type=float, default=0, help="naive model: cost per switch (default ignores costs)")
+    p.add_argument("--tax-rate", type=float, default=0,
+                   help="capital gains tax %% charged on each switch's realised gain (e.g. 20)")
+    p.add_argument("--short-term-tax-rate", type=float, default=None,
+                   help="US-style rate %% for gains on positions held under a year (e.g. 37)")
+    p.add_argument("--out", default="results", help="output folder")
     p.add_argument("--no-show", action="store_true", help="don't open the animation window (still saves the GIF)")
     p.add_argument("--offline", action="store_true", help="use cached data only")
     a = p.parse_args(argv)
+    if a.start is None:
+        a.start = str((pd.Timestamp.today().normalize() - pd.DateOffset(days=round(a.years * 365.25))).date())
 
     if a.no_show:
         import matplotlib

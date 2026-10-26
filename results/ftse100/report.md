@@ -1,15 +1,15 @@
 # FTSE 100 — always own the #1 company vs the index
 
-Period: 2009-01-02 to 2026-10-26. Start capital 10,000 GBP. Benchmark: iShares Core FTSE 100 ETF (ISF.L).
+Period: 2009-01-02 to 2026-10-26. Start capital 10,000 GBP. Benchmark: iShares Core FTSE 100 ETF (ISF.L). Capital gains tax: 0%.
 
 ## Summary
 
-|                          |   Final value | Total return   | CAGR   | Volatility   |   Sharpe (rf=0) |   Sortino | Max drawdown   |   Calmar | Best year   | Worst year   |   Trades | Distinct companies held   | CAGR vs index   |
-|:-------------------------|--------------:|:---------------|:-------|:-------------|----------------:|----------:|:---------------|---------:|:------------|:-------------|---------:|:--------------------------|:----------------|
-| Naive: always #1         |        15,882 | 58.8%          | 2.6%   | 25.6%        |            0.23 |      0.3  | -60.9%         |     0.04 | 58.6%       | -44.5%       |       81 | 4                         | -5.2%           |
-| Patient: 1-week confirm  |        16,080 | 60.9%          | 2.7%   | 25.8%        |            0.23 |      0.31 | -60.9%         |     0.04 | 58.6%       | -51.0%       |       19 | 4                         | -5.1%           |
-| Patient: 1-month confirm |        17,604 | 76.1%          | 3.2%   | 25.8%        |            0.25 |      0.34 | -63.6%         |     0.05 | 58.6%       | -58.8%       |        9 | 4                         | -4.6%           |
-| FTSE 100 (index)         |        38,423 | 284.2%         | 7.8%   | 15.9%        |            0.56 |      0.72 | -34.0%         |     0.23 | 25.9%       | -11.5%       |        1 | -                         | +0.0%           |
+|                          |   Final value | Total return   | CAGR   | Volatility   |   Sharpe (rf=0) |   Sortino | Max drawdown   |   Calmar | Best year   | Worst year   |   Trades | Distinct companies held   |   Tax paid on switches |   After-tax value if sold today | After-tax CAGR   | CAGR vs index   | After-tax CAGR vs index   |
+|:-------------------------|--------------:|:---------------|:-------|:-------------|----------------:|----------:|:---------------|---------:|:------------|:-------------|---------:|:--------------------------|-----------------------:|--------------------------------:|:-----------------|:----------------|:--------------------------|
+| Naive: always #1         |        17,099 | 71.0%          | 3.1%   | 25.9%        |            0.25 |      0.32 | -64.8%         |     0.05 | 58.6%       | -44.0%       |       81 | 4                         |                      0 |                          17,099 | 3.1%             | -4.8%           | -4.8%                     |
+| Patient: 1-week confirm  |        20,489 | 105.0%         | 4.1%   | 26.2%        |            0.28 |      0.38 | -63.6%         |     0.06 | 58.6%       | -43.3%       |       17 | 4                         |                      0 |                          20,489 | 4.1%             | -3.7%           | -3.7%                     |
+| Patient: 1-month confirm |        26,058 | 160.7%         | 5.5%   | 26.3%        |            0.34 |      0.45 | -63.0%         |     0.09 | 58.6%       | -39.0%       |        7 | 3                         |                      0 |                          26,058 | 5.5%             | -2.3%           | -2.3%                     |
+| FTSE 100 (index)         |        38,423 | 284.2%         | 7.8%   | 15.9%        |            0.56 |      0.72 | -34.0%         |     0.23 | 25.9%       | -11.5%       |        1 | -                         |                      0 |                          38,423 | 7.8%             | +0.0%           | +0.0%                     |
 
 ## Calendar-year returns (%)
 
@@ -26,8 +26,8 @@ Period: 2009-01-02 to 2026-10-26. Start capital 10,000 GBP. Benchmark: iShares C
 |   2017 |               18.3 |                      18.3 |                       18.3 |               13.1 |
 |   2018 |               -1.4 |                      -1.4 |                       -1.4 |               -9   |
 |   2019 |                3   |                       3   |                        3   |               17.1 |
-|   2020 |              -44.5 |                     -51   |                      -58.8 |              -11.5 |
-|   2021 |               22   |                      18.1 |                       30.1 |               17.7 |
+|   2020 |              -44   |                     -43.3 |                      -39   |              -11.5 |
+|   2021 |               30.1 |                      30.1 |                       30.1 |               17.7 |
 |   2022 |               22.4 |                      38   |                       18.7 |                4.9 |
 |   2023 |              -13.5 |                     -14.4 |                       -9.2 |                7.8 |
 |   2024 |              -20.3 |                      -9.1 |                       -3.5 |                9.3 |
@@ -38,20 +38,18 @@ Period: 2009-01-02 to 2026-10-26. Start capital 10,000 GBP. Benchmark: iShares C
 
 |             |   Naive: always #1 |   Patient: 1-week confirm |   Patient: 1-month confirm |
 |:------------|-------------------:|--------------------------:|---------------------------:|
-| Shell       |               79.2 |                      79.2 |                       79.1 |
+| Shell       |               79.8 |                      79.9 |                       80.4 |
 | AstraZeneca |               16.2 |                      16.5 |                       17.1 |
 | HSBC        |                3.6 |                       3.3 |                        2.5 |
-| Unilever    |                1   |                       1   |                        1.3 |
+| Unilever    |                0.4 |                       0.3 |                        0   |
 
 ## Holding periods — Patient: 1-week confirm
 
 | Company     | Ticker   | From       | To         |   Days |   Return |   Index return |   Excess |
 |:------------|:---------|:-----------|:-----------|-------:|---------:|---------------:|---------:|
-| Shell       | SHEL.L   | 2009-01-02 | 2020-09-21 |   4280 |      5.5 |           68.4 |    -62.9 |
-| Unilever    | ULVR.L   | 2020-09-21 | 2020-11-16 |     56 |      0.4 |           11   |    -10.6 |
-| Shell       | SHEL.L   | 2020-11-16 | 2021-02-12 |     88 |      9.3 |            3.1 |      6.3 |
-| Unilever    | ULVR.L   | 2021-02-12 | 2021-02-22 |     10 |     -3.4 |            0.5 |     -3.9 |
-| Shell       | SHEL.L   | 2021-02-22 | 2022-06-29 |    492 |     60.3 |           16.4 |     43.9 |
+| Shell       | SHEL.L   | 2009-01-02 | 2020-10-20 |   4309 |      1.2 |           71.2 |    -70   |
+| Unilever    | ULVR.L   | 2020-10-20 | 2020-11-05 |     16 |     -2.7 |            0.4 |     -3.1 |
+| Shell       | SHEL.L   | 2020-11-05 | 2022-06-29 |    601 |    131.9 |           31.1 |    100.8 |
 | AstraZeneca | AZN.L    | 2022-06-29 | 2022-09-09 |     72 |     -4.4 |            1.7 |     -6.1 |
 | Shell       | SHEL.L   | 2022-09-09 | 2022-11-24 |     76 |      2.7 |            1.9 |      0.7 |
 | AstraZeneca | AZN.L    | 2022-11-24 | 2023-03-03 |     99 |      0.1 |            7.1 |     -7.1 |
@@ -71,9 +69,7 @@ Period: 2009-01-02 to 2026-10-26. Start capital 10,000 GBP. Benchmark: iShares C
 
 | Company     | Ticker   | From       | To         |   Days |   Return |   Index return |   Excess |
 |:------------|:---------|:-----------|:-----------|-------:|---------:|---------------:|---------:|
-| Shell       | SHEL.L   | 2009-01-02 | 2020-09-21 |   4280 |      5.5 |           68.4 |    -62.9 |
-| Unilever    | ULVR.L   | 2020-09-21 | 2020-12-09 |     79 |     -5.9 |           13.8 |    -19.7 |
-| Shell       | SHEL.L   | 2020-12-09 | 2022-07-22 |    590 |     56   |           17.1 |     38.9 |
+| Shell       | SHEL.L   | 2009-01-02 | 2022-07-22 |   4949 |    129.2 |          124.3 |      4.9 |
 | AstraZeneca | AZN.L    | 2022-07-22 | 2022-10-03 |     73 |     -8.3 |           -4   |     -4.4 |
 | Shell       | SHEL.L   | 2022-10-03 | 2022-12-19 |     77 |      0.2 |            7   |     -6.7 |
 | AstraZeneca | AZN.L    | 2022-12-19 | 2023-11-06 |    322 |     -5.6 |            4.2 |     -9.8 |
@@ -83,16 +79,16 @@ Period: 2009-01-02 to 2026-10-26. Start capital 10,000 GBP. Benchmark: iShares C
 
 ## Data notes
 
-| ticker   | shares                                   |   calibration |
-|:---------|:-----------------------------------------|--------------:|
-| SHEL.L   | Yahoo from 2022; back-filled before 2022 |             1 |
-| BP.L     | Yahoo from 2015; back-filled before 2015 |             1 |
-| HSBA.L   | Yahoo from 2015; back-filled before 2015 |             1 |
-| AZN.L    | Yahoo from 2015; back-filled before 2015 |             1 |
-| ULVR.L   | Yahoo from 2016; back-filled before 2016 |             1 |
-| GSK.L    | Yahoo from 2015; back-filled before 2015 |             1 |
-| VOD.L    | Yahoo from 2015; back-filled before 2015 |             1 |
-| RIO.L    | Yahoo from 2015; back-filled before 2015 |             1 |
-| BATS.L   | Yahoo from 2015; back-filled before 2015 |             1 |
-| DGE.L    | Yahoo from 2015; back-filled before 2015 |             1 |
-| LSEG.L   | Yahoo from 2021; back-filled before 2021 |             1 |
+| ticker   | shares                                       |   calibration |
+|:---------|:---------------------------------------------|--------------:|
+| SHEL.L   | Yahoo from 2022; trend-estimated before 2022 |             1 |
+| BP.L     | Yahoo from 2015; trend-estimated before 2015 |             1 |
+| HSBA.L   | Yahoo from 2015; trend-estimated before 2015 |             1 |
+| AZN.L    | Yahoo from 2015; trend-estimated before 2015 |             1 |
+| ULVR.L   | Yahoo from 2016; trend-estimated before 2016 |             1 |
+| GSK.L    | Yahoo from 2015; trend-estimated before 2015 |             1 |
+| VOD.L    | Yahoo from 2015; trend-estimated before 2015 |             1 |
+| RIO.L    | Yahoo from 2015; trend-estimated before 2015 |             1 |
+| BATS.L   | Yahoo from 2015; trend-estimated before 2015 |             1 |
+| DGE.L    | Yahoo from 2015; trend-estimated before 2015 |             1 |
+| LSEG.L   | Yahoo from 2021; trend-estimated before 2021 |             1 |

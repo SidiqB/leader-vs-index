@@ -6,7 +6,7 @@ Market cap on day d = (unadjusted price on d) x (shares outstanding on d).
   return (dividends reinvested) is rebuilt from Close + Dividends.
 * Share counts come from Yahoo (roughly 2015 onwards) spliced onto SEC EDGAR XBRL
   filings (roughly 2007 onwards, US filers only). Before the first known share count
-  the earliest value is carried backwards, which is an approximation.
+  the early buyback/issuance trend is extended backwards (an estimate).
 * Each company's series is finally calibrated so today's value matches Yahoo's quoted
   market cap. That fixes multi-share-class companies (Alphabet, Berkshire) whose
   share count on one ticker understates the whole company.
@@ -249,8 +249,29 @@ def shares_history(ticker: str, prices: pd.DataFrame, offline: bool = False) -> 
     combined = combined[~combined.index.duplicated(keep="last")]
     daily = combined.reindex(idx.union(combined.index)).ffill().reindex(idx)
     first_known = combined.index[0]
-    daily = daily.bfill()  # carry earliest known count backwards (approximation)
-    return daily, " + ".join(note) + (f"; back-filled before {first_known:%Y}" if first_known > idx[0] else "")
+    daily = _backcast(daily, combined)
+    return daily, " + ".join(note) + (f"; trend-estimated before {first_known:%Y}" if first_known > idx[0] else "")
+
+
+def _backcast(daily: pd.Series, known: pd.Series, fit_years: float = 3, max_rate: float = 0.08,
+              max_years: float = 5) -> pd.Series:
+    """Estimate share counts before the first known one.
+
+    Companies buy back (or issue) shares at a fairly steady pace, so instead of holding
+    the earliest count flat we extend the trend of the first few known years backwards
+    (capped at +/-8% a year, for at most 5 years, then flat).
+    """
+    first = known.index[0]
+    early = known[known.index <= first + pd.Timedelta(days=365 * fit_years)]
+    span = (early.index[-1] - first).days / 365.25
+    rate = 0.0
+    if len(early) >= 3 and span >= 1:
+        rate = float(np.clip(np.log(early.iloc[-1] / early.iloc[0]) / span, -max_rate, max_rate))
+    before = daily.index < first
+    yrs_back = np.minimum((first - daily.index[before]).days / 365.25, max_years)
+    out = daily.copy()
+    out[before] = known.iloc[0] * np.exp(-rate * yrs_back)
+    return out
 
 
 # ---------------------------------------------------------------- top level

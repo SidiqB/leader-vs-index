@@ -9,7 +9,8 @@ import pandas as pd
 
 from .data import MarketData, load_market_data
 from .indices import IndexDef, get_index
-from .strategies import DEFAULT_STRATEGIES, StrategyConfig, StrategyResult, benchmark_equity, run_strategy
+from .strategies import (DEFAULT_STRATEGIES, StrategyConfig, StrategyResult, TaxConfig, benchmark_equity,
+                         run_strategy)
 
 TRADING_DAYS = 252
 
@@ -23,6 +24,7 @@ class Backtest:
     capital: float
     benchmark: pd.Series
     results: list[StrategyResult]
+    tax: TaxConfig = TaxConfig()
 
     @property
     def equity(self) -> pd.DataFrame:
@@ -40,13 +42,13 @@ class Backtest:
 
 def run_backtest(index_key: str, start: str = "2008-01-01", end: str | None = None, capital: float = 10_000.0,
                  strategies: tuple[StrategyConfig, ...] = DEFAULT_STRATEGIES, offline: bool = False,
-                 progress=None, md: MarketData | None = None) -> Backtest:
+                 progress=None, md: MarketData | None = None, tax: TaxConfig = TaxConfig()) -> Backtest:
     index = get_index(index_key)
     md = md or load_market_data(index, offline=offline, progress=progress)
     start = str(max(pd.Timestamp(start), md.market_cap.dropna(how="all").index[0]).date())
-    results = [run_strategy(cfg, index, md, start, end, capital) for cfg in strategies]
+    results = [run_strategy(cfg, index, md, start, end, capital, tax) for cfg in strategies]
     bench = benchmark_equity(md, start, end, capital)
-    return Backtest(index, md, start, end, capital, bench, results)
+    return Backtest(index, md, start, end, capital, bench, results, tax)
 
 
 # ---------------------------------------------------------------- metrics
@@ -86,10 +88,18 @@ def summary_table(bt: Backtest) -> pd.DataFrame:
         res = next((r for r in bt.results if r.config.name == col), None)
         m["Trades"] = len(res.trades) if res is not None else 1
         m["Distinct companies held"] = res.holding.dropna().nunique() if res is not None else np.nan
+        if res is not None:
+            m["Tax paid on switches"], exit_tax = res.tax_paid, res.exit_tax
+        else:  # buy and hold: one sale at the very end, held long term
+            m["Tax paid on switches"] = 0.0
+            exit_tax = max(eq[col].iloc[-1] - bt.capital, 0.0) * bt.tax.rate
+        m["After-tax value if sold today"] = eq[col].iloc[-1] - exit_tax
+        years = (eq.index[-1] - eq.index[0]).days / 365.25
+        m["After-tax CAGR"] = (m["After-tax value if sold today"] / bt.capital) ** (1 / years) - 1
         rows[col] = m
     df = pd.DataFrame(rows).T
-    bench_cagr = df.loc[bt.benchmark_label, "CAGR"]
-    df["CAGR vs index"] = df["CAGR"] - bench_cagr
+    df["CAGR vs index"] = df["CAGR"] - df.loc[bt.benchmark_label, "CAGR"]
+    df["After-tax CAGR vs index"] = df["After-tax CAGR"] - df.loc[bt.benchmark_label, "After-tax CAGR"]
     return df
 
 
@@ -153,15 +163,31 @@ def rolling_excess(bt: Backtest, window_days: int = TRADING_DAYS) -> pd.DataFram
 
 
 def fmt_summary(df: pd.DataFrame, capital: float) -> pd.DataFrame:
-    pct = ["Total return", "CAGR", "Volatility", "Max drawdown", "Best year", "Worst year", "CAGR vs index"]
+    pct = ["Total return", "CAGR", "Volatility", "Max drawdown", "Best year", "Worst year", "CAGR vs index",
+           "After-tax CAGR", "After-tax CAGR vs index"]
     out = df.copy().astype(object)
     for c in out.columns:
         if c in pct:
-            out[c] = df[c].map(lambda v: f"{v:+.1%}" if c in ("CAGR vs index",) else f"{v:.1%}")
-        elif c == "Final value":
+            out[c] = df[c].map(lambda v: f"{v:+.1%}" if c.endswith("vs index") else f"{v:.1%}")
+        elif c in ("Final value", "Tax paid on switches", "After-tax value if sold today"):
             out[c] = df[c].map(lambda v: f"{v:,.0f}")
         elif c in ("Trades", "Distinct companies held"):
             out[c] = df[c].map(lambda v: "-" if pd.isna(v) else f"{int(v)}")
         else:
             out[c] = df[c].map(lambda v: f"{v:.2f}")
+    return out
+
+
+def tax_comparison(bt_taxed: Backtest, bt_untaxed: Backtest) -> pd.DataFrame:
+    """Before vs after tax, side by side (same strategies, same data)."""
+    pre, post = summary_table(bt_untaxed), summary_table(bt_taxed)
+    out = pd.DataFrame({
+        "Before tax: final value": pre["Final value"],
+        "Before tax: CAGR": pre["CAGR"],
+        "Tax paid on switches": post["Tax paid on switches"],
+        "After tax: value if sold today": post["After-tax value if sold today"],
+        "After tax: CAGR": post["After-tax CAGR"],
+    })
+    out["Lost to tax"] = 1 - out["After tax: value if sold today"] / out["Before tax: final value"]
+    out["After tax: CAGR vs index"] = post["After-tax CAGR vs index"]
     return out

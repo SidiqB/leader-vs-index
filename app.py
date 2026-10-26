@@ -19,7 +19,7 @@ from leadertrack.analysis import (holding_periods, leader_history, rolling_exces
 from leadertrack.data import load_market_data
 from leadertrack.indices import INDICES
 from leadertrack.plots import INDEX_INK, OTHER, SERIES
-from leadertrack.strategies import StrategyConfig
+from leadertrack.strategies import StrategyConfig, TaxConfig
 
 st.set_page_config(page_title="Leader vs Index", page_icon="📈", layout="wide")
 
@@ -54,7 +54,8 @@ def base_layout(fig, title, height=420, log=False, pct=False, money=None):
 # ---------------------------------------------------------------- sidebar
 st.sidebar.title("📈 Leader vs Index")
 key = st.sidebar.selectbox("Index", list(INDICES), format_func=lambda k: INDICES[k].name)
-start = st.sidebar.date_input("Start date", pd.Timestamp("2008-01-01"), min_value=pd.Timestamp("1996-01-01"))
+years = st.sidebar.slider("Years to backtest", 3, 30, 20)
+start = (pd.Timestamp.today().normalize() - pd.DateOffset(years=years)).date()
 capital = st.sidebar.number_input("Starting money", 1_000, 10_000_000, 10_000, step=1_000)
 
 st.sidebar.subheader("Model 1 · Naive")
@@ -68,6 +69,15 @@ confirm = st.sidebar.multiselect("Confirmation period(s), days", [7, 14, 30, 60,
 min_age = st.sidebar.slider("IPO maturity (days trading before eligible)", 0, 1095, 365, step=30)
 drop_rank = st.sidebar.slider("Sell immediately if holding falls to rank", 2, 5, 3)
 cost = st.sidebar.number_input("Cost per switch (bps)", 0.0, 100.0, 10.0, key="pc")
+
+st.sidebar.subheader("Tax")
+st.sidebar.caption("Every switch is a sale, so gains get taxed along the way (losses carry forward). "
+                   "The index is buy-and-hold: it only pays once, when you sell at the end. "
+                   "Set 0 for a tax-free account (ISA, IRA/401k).")
+tax_rate = st.sidebar.slider("Capital gains tax %", 0, 45, 0)
+use_short = st.sidebar.toggle("Higher rate if held under a year (US-style)", False)
+short_rate = st.sidebar.slider("Short-term rate %", 0, 50, 37, disabled=not use_short)
+tax = TaxConfig(rate=tax_rate / 100, short_term_rate=short_rate / 100 if use_short else None)
 
 st.sidebar.subheader("Animation")
 animate = st.sidebar.toggle("Play the race chart", True)
@@ -83,7 +93,10 @@ for d in sorted(confirm):
 idx = INDICES[key]
 with st.spinner(f"Downloading {idx.name} data (first run takes ~30s, then it's cached)…"):
     md = market_data(key)
-bt = run_backtest(key, start=str(start), capital=float(capital), strategies=tuple(strategies), md=md)
+bt = run_backtest(key, start=str(start), capital=float(capital), strategies=tuple(strategies), md=md, tax=tax)
+# Same run without tax, for the before/after comparison
+bt_pre = (run_backtest(key, start=str(start), capital=float(capital), strategies=tuple(strategies), md=md)
+          if tax.active else bt)
 eq = bt.equity
 colors = colors_for(bt)
 names = bt.names()
@@ -97,7 +110,7 @@ if not idx.us_listed:
     st.info("Non-US index: historical share counts are only available from ~2015, so market caps before that "
             "are estimated from later share counts. Rankings in early years are approximate.")
 if pd.Timestamp(start) < pd.Timestamp("2008-01-01"):
-    st.warning("Share-count data mostly starts 2007-2009, so rankings before then use back-filled share "
+    st.warning("Share-count data mostly starts 2007-2009, so rankings before then use estimated share "
                "counts and can be off when two companies are close.")
 
 # ---------------------------------------------------------------- race chart
@@ -136,16 +149,35 @@ race.plotly_chart(race_figure(len(eq)), use_container_width=True, key="race_fina
 
 # ---------------------------------------------------------------- headline numbers
 summary = summary_table(bt)
+pre_final = summary_table(bt_pre)["Final value"]
 cols = st.columns(len(summary))
+val_col, cagr_col, vs_col = (("After-tax value if sold today", "After-tax CAGR", "After-tax CAGR vs index")
+                             if tax.active else ("Final value", "CAGR", "CAGR vs index"))
+if tax.active:
+    st.caption(f"Headline numbers are **after {tax_rate}% capital gains tax**, as if you sold everything today.")
 for c, (name, row) in zip(cols, summary.iterrows()):
-    c.metric(name, f"{money}{row['Final value']:,.0f}",
-             f"{row['CAGR vs index']:+.1%} CAGR vs index" if name != bt.benchmark_label else f"{row['CAGR']:.1%} CAGR",
+    c.metric(name, f"{money}{row[val_col]:,.0f}",
+             f"{row[vs_col]:+.1%} a year vs index" if name != bt.benchmark_label else f"{row[cagr_col]:.1%} a year",
              delta_color="normal" if name != bt.benchmark_label else "off")
+    if tax.active:
+        m = money.replace("$", "\\$")  # a bare $ would start LaTeX in markdown
+        c.caption(f"Before tax {m}{pre_final[name]:,.0f} · tax paid on switches "
+                  f"{m}{row['Tax paid on switches']:,.0f}")
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["Comparison charts", "Tables", "Holdings & trades", "All indices", "Data notes"])
 
 # ---------------------------------------------------------------- charts
 with tab1:
+    if tax.active:
+        fig = go.Figure([
+            go.Bar(x=summary.index, y=pre_final.reindex(summary.index), name="Before tax", marker_color=SERIES[0]),
+            go.Bar(x=summary.index, y=summary["After-tax value if sold today"], name=f"After {tax_rate}% tax",
+                   marker_color=SERIES[1],
+                   text=[f"{money}{v:,.0f}" for v in summary["After-tax value if sold today"]], textposition="outside"),
+        ])
+        fig.update_layout(barmode="group")
+        st.plotly_chart(base_layout(fig, "What you'd actually keep: before vs after capital gains tax", money=money),
+                        use_container_width=True)
     a, b = st.columns(2)
     dd = eq / eq.cummax() - 1
     fig = go.Figure([go.Scatter(x=dd.index, y=dd[c], name=c, line=dict(color=colors[c], width=1.6)) for c in dd])
@@ -175,10 +207,13 @@ with tab1:
 # ---------------------------------------------------------------- tables
 with tab2:
     st.subheader("Performance summary")
-    pct_cols = ["Total return", "CAGR", "CAGR vs index", "Volatility", "Max drawdown", "Best year", "Worst year"]
+    pct_cols = ["Total return", "CAGR", "CAGR vs index", "Volatility", "Max drawdown", "Best year", "Worst year",
+                "After-tax CAGR", "After-tax CAGR vs index"]
     fmt = {c: "{:.1%}" for c in pct_cols} | {"Final value": money + "{:,.0f}", "Sharpe (rf=0)": "{:.2f}",
                                               "Sortino": "{:.2f}", "Calmar": "{:.2f}", "Trades": "{:.0f}",
-                                              "Distinct companies held": "{:.0f}"}
+                                              "Distinct companies held": "{:.0f}",
+                                              "Tax paid on switches": money + "{:,.0f}",
+                                              "After-tax value if sold today": money + "{:,.0f}"}
     st.dataframe(summary.style.format(fmt, na_rep="-"), use_container_width=True)
 
     st.subheader("Calendar-year returns")
@@ -213,7 +248,7 @@ with tab3:
     st.markdown("**Trade log**")
     st.dataframe(r.trades.assign(sold=r.trades["sold"].map(lambda t: names.get(t, t) if isinstance(t, str) else "-"),
                                  bought=r.trades["bought"].map(lambda t: names.get(t, t)))
-                 .style.format({"value_after": money + "{:,.0f}"}), use_container_width=True, hide_index=True)
+                 .style.format({"value_after": money + "{:,.0f}", "tax_paid": money + "{:,.0f}"}), use_container_width=True, hide_index=True)
     st.markdown("**Every change of #1 in the index**")
     st.dataframe(leader_history(bt), use_container_width=True, hide_index=True)
 
@@ -226,11 +261,11 @@ with tab4:
         for n, k in enumerate(INDICES, 1):
             prog.progress(n / len(INDICES), f"{INDICES[k].name}")
             b2 = run_backtest(k, start=str(start), capital=float(capital), strategies=tuple(strategies),
-                              md=market_data(k))
+                              md=market_data(k), tax=tax)
             s2 = summary_table(b2)
             for name, row in s2.iterrows():
                 rows.append({"Index": INDICES[k].name, "Strategy": "Index" if name == b2.benchmark_label else name,
-                             "CAGR": row["CAGR"], "CAGR vs index": row["CAGR vs index"],
+                             "CAGR": row[cagr_col], "CAGR vs index": row[vs_col],
                              "Max drawdown": row["Max drawdown"], "Trades": row["Trades"]})
         allres = pd.DataFrame(rows)
         piv = allres.pivot(index="Index", columns="Strategy", values="CAGR")

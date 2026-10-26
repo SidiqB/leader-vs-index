@@ -1,21 +1,23 @@
 # Nasdaq-100 — always own the #1 company vs the index
 
-Period: 2008-01-02 to 2026-10-23. Start capital 10,000 USD. Benchmark: Invesco QQQ Trust (QQQ).
+Period: 2006-10-26 to 2026-10-23. Start capital 10,000 USD. Benchmark: Invesco QQQ Trust (QQQ). Capital gains tax: 0%.
 
 ## Summary
 
-|                          |   Final value | Total return   | CAGR   | Volatility   |   Sharpe (rf=0) |   Sortino | Max drawdown   |   Calmar | Best year   | Worst year   |   Trades | Distinct companies held   | CAGR vs index   |
-|:-------------------------|--------------:|:---------------|:-------|:-------------|----------------:|----------:|:---------------|---------:|:------------|:-------------|---------:|:--------------------------|:----------------|
-| Naive: always #1         |       109,623 | 996.2%         | 13.6%  | 30.6%        |            0.57 |      0.77 | -56.1%         |     0.24 | 60.5%       | -43.8%       |       70 | 5                         | -2.4%           |
-| Patient: 1-week confirm  |       169,413 | 1595.0%        | 16.2%  | 30.3%        |            0.65 |      0.91 | -56.1%         |     0.29 | 68.1%       | -43.8%       |       18 | 4                         | +0.2%           |
-| Patient: 1-month confirm |       181,584 | 1716.7%        | 16.7%  | 30.3%        |            0.66 |      0.92 | -56.1%         |     0.3  | 65.9%       | -43.8%       |       10 | 3                         | +0.7%           |
-| Nasdaq-100 (index)       |       162,813 | 1528.1%        | 16.0%  | 22.4%        |            0.78 |      1    | -49.4%         |     0.32 | 54.9%       | -40.8%       |        1 | -                         | +0.0%           |
+|                          |   Final value | Total return   | CAGR   | Volatility   |   Sharpe (rf=0) |   Sortino | Max drawdown   |   Calmar | Best year   | Worst year   |   Trades | Distinct companies held   |   Tax paid on switches |   After-tax value if sold today | After-tax CAGR   | CAGR vs index   | After-tax CAGR vs index   |
+|:-------------------------|--------------:|:---------------|:-------|:-------------|----------------:|----------:|:---------------|---------:|:------------|:-------------|---------:|:--------------------------|-----------------------:|--------------------------------:|:-----------------|:----------------|:--------------------------|
+| Naive: always #1         |       138,496 | 1285.0%        | 14.0%  | 30.1%        |            0.59 |      0.8  | -57.9%         |     0.24 | 60.5%       | -44.4%       |       70 | 5                         |                      0 |                         138,496 | 14.0%            | -1.9%           | -1.9%                     |
+| Patient: 1-week confirm  |       214,034 | 2041.4%        | 16.6%  | 29.9%        |            0.66 |      0.93 | -57.9%         |     0.29 | 68.1%       | -44.4%       |       18 | 4                         |                      0 |                         214,034 | 16.6%            | +0.6%           | +0.6%                     |
+| Patient: 1-month confirm |       229,410 | 2195.2%        | 17.0%  | 29.8%        |            0.68 |      0.95 | -57.9%         |     0.29 | 65.9%       | -44.4%       |       10 | 3                         |                      0 |                         229,410 | 17.0%            | +1.0%           | +1.0%                     |
+| Nasdaq-100 (index)       |       192,471 | 1824.7%        | 15.9%  | 22.1%        |            0.78 |      1.01 | -53.4%         |     0.3  | 54.9%       | -41.7%       |        1 | -                         |                      0 |                         192,471 | 15.9%            | +0.0%           | +0.0%                     |
 
 ## Calendar-year returns (%)
 
 |   Year |   Naive: always #1 |   Patient: 1-week confirm |   Patient: 1-month confirm |   Nasdaq-100 (index) |
 |-------:|-------------------:|--------------------------:|---------------------------:|---------------------:|
-|   2008 |              -43.8 |                     -43.8 |                      -43.8 |                -40.8 |
+|   2006 |                5.7 |                       5.7 |                        5.7 |                  0.9 |
+|   2007 |               20.8 |                      20.8 |                       20.8 |                 19   |
+|   2008 |              -44.4 |                     -44.4 |                      -44.4 |                -41.7 |
 |   2009 |               60.5 |                      60.5 |                       60.5 |                 54.7 |
 |   2010 |                9.4 |                       7   |                       -1.9 |                 20.1 |
 |   2011 |               25.6 |                      25.6 |                       25.6 |                  3.5 |
@@ -39,9 +41,9 @@ Period: 2008-01-02 to 2026-10-23. Start capital 10,000 USD. Benchmark: Invesco Q
 
 |           |   Naive: always #1 |   Patient: 1-week confirm |   Patient: 1-month confirm |
 |:----------|-------------------:|--------------------------:|---------------------------:|
-| Apple     |               70.8 |                      70.9 |                       70.4 |
-| Microsoft |               21.4 |                      21.6 |                       23   |
-| Nvidia    |                7.5 |                       7.3 |                        6.7 |
+| Apple     |               66.6 |                      66.8 |                       66.2 |
+| Microsoft |               26   |                      26.2 |                       27.5 |
+| Nvidia    |                7.1 |                       6.9 |                        6.3 |
 | Amazon    |                0.3 |                       0.2 |                        0   |
 | Alphabet  |                0   |                       0   |                        0   |
 
@@ -49,7 +51,7 @@ Period: 2008-01-02 to 2026-10-23. Start capital 10,000 USD. Benchmark: Invesco Q
 
 | Company   | Ticker   | From       | To         |   Days |   Return |   Index return |   Excess |
 |:----------|:---------|:-----------|:-----------|-------:|---------:|---------------:|---------:|
-| Microsoft | MSFT     | 2008-01-02 | 2010-06-02 |    882 |    -21   |           -7.3 |    -13.7 |
+| Microsoft | MSFT     | 2006-10-26 | 2010-06-02 |   1315 |     -0.3 |            9.6 |     -9.8 |
 | Apple     | AAPL     | 2010-06-02 | 2018-12-06 |   3109 |    424.2 |          295.9 |    128.3 |
 | Microsoft | MSFT     | 2018-12-06 | 2019-01-14 |     39 |     -6.6 |           -4.3 |     -2.3 |
 | Amazon    | AMZN     | 2019-01-14 | 2019-01-29 |     15 |     -1.5 |            1.4 |     -3   |
@@ -72,7 +74,7 @@ Period: 2008-01-02 to 2026-10-23. Start capital 10,000 USD. Benchmark: Invesco Q
 
 | Company   | Ticker   | From       | To         |   Days |   Return |   Index return |   Excess |
 |:----------|:---------|:-----------|:-----------|-------:|---------:|---------------:|---------:|
-| Microsoft | MSFT     | 2008-01-02 | 2010-06-25 |    905 |    -26.8 |           -8.9 |    -17.9 |
+| Microsoft | MSFT     | 2006-10-26 | 2010-06-25 |   1338 |     -7.5 |            7.7 |    -15.2 |
 | Apple     | AAPL     | 2010-06-25 | 2018-12-06 |   3086 |    418.8 |          302.9 |    115.9 |
 | Microsoft | MSFT     | 2018-12-06 | 2019-12-02 |    361 |     38.9 |           22.7 |     16.1 |
 | Apple     | AAPL     | 2019-12-02 | 2020-04-20 |    140 |      5   |            5.2 |     -0.3 |
@@ -85,19 +87,19 @@ Period: 2008-01-02 to 2026-10-23. Start capital 10,000 USD. Benchmark: Invesco Q
 
 ## Data notes
 
-| ticker   | shares                                                   |   calibration |
-|:---------|:---------------------------------------------------------|--------------:|
-| MSFT     | SEC from 2007 + Yahoo from 2015; back-filled before 2007 |             1 |
-| AAPL     | SEC from 2007 + Yahoo from 2015; back-filled before 2007 |             1 |
-| CSCO     | SEC from 2008 + Yahoo from 2015; back-filled before 2008 |             1 |
-| INTC     | SEC from 2007 + Yahoo from 2015; back-filled before 2007 |             1 |
-| QCOM     | SEC from 2007 + Yahoo from 2015; back-filled before 2007 |             1 |
-| ORCL     | SEC from 2008 + Yahoo from 2015; back-filled before 2008 |             1 |
-| AMZN     | SEC from 2007 + Yahoo from 2015; back-filled before 2007 |             1 |
-| COST     | SEC from 2008 + Yahoo from 2015; back-filled before 2008 |             1 |
-| NVDA     | SEC from 2009 + Yahoo from 2015; back-filled before 2009 |             1 |
-| GOOGL    | SEC from 2008 + Yahoo from 2015; back-filled before 2008 |             1 |
-| META     | SEC from 2010 + Yahoo from 2022                          |             1 |
-| TSLA     | SEC from 2010 + Yahoo from 2015; back-filled before 2010 |             1 |
-| AVGO     | Yahoo from 2015; back-filled before 2015                 |             1 |
-| NFLX     | SEC from 2007 + Yahoo from 2015; back-filled before 2007 |             1 |
+| ticker   | shares                                                       |   calibration |
+|:---------|:-------------------------------------------------------------|--------------:|
+| MSFT     | SEC from 2007 + Yahoo from 2015; trend-estimated before 2007 |             1 |
+| AAPL     | SEC from 2007 + Yahoo from 2015; trend-estimated before 2007 |             1 |
+| CSCO     | SEC from 2008 + Yahoo from 2015; trend-estimated before 2008 |             1 |
+| INTC     | SEC from 2007 + Yahoo from 2015; trend-estimated before 2007 |             1 |
+| QCOM     | SEC from 2007 + Yahoo from 2015; trend-estimated before 2007 |             1 |
+| ORCL     | SEC from 2008 + Yahoo from 2015; trend-estimated before 2008 |             1 |
+| AMZN     | SEC from 2007 + Yahoo from 2015; trend-estimated before 2007 |             1 |
+| COST     | SEC from 2008 + Yahoo from 2015; trend-estimated before 2008 |             1 |
+| NVDA     | SEC from 2009 + Yahoo from 2015; trend-estimated before 2009 |             1 |
+| GOOGL    | SEC from 2008 + Yahoo from 2015; trend-estimated before 2008 |             1 |
+| META     | SEC from 2010 + Yahoo from 2022                              |             1 |
+| TSLA     | SEC from 2010 + Yahoo from 2015; trend-estimated before 2010 |             1 |
+| AVGO     | Yahoo from 2015; trend-estimated before 2015                 |             1 |
+| NFLX     | SEC from 2007 + Yahoo from 2015; trend-estimated before 2007 |             1 |

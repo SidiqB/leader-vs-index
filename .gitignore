@@ -7,3 +7,4 @@ data_cache/
 # animations are large; keep only the S&P 500 one in the repo
 results/*/race.gif
 !results/sp500/race.gif
+results_tax20/*/race.gif

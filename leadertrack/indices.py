@@ -164,6 +164,7 @@ DAX40 = IndexDef(
         Member("SIE.DE", "Siemens"),
         Member("ALV.DE", "Allianz"),
         Member("DTE.DE", "Deutsche Telekom"),
+        Member("EOAN.DE", "E.ON"),
         Member("MBG.DE", "Mercedes-Benz"),
         Member("VOW3.DE", "Volkswagen"),
         Member("BAS.DE", "BASF"),

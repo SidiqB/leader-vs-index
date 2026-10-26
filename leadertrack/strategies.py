@@ -53,26 +53,37 @@ DEFAULT_STRATEGIES = (
 @dataclass
 class StrategyResult:
     config: StrategyConfig
-    equity: pd.Series  # portfolio value through time
+    equity: pd.Series  # money in the account through time (includes money paid in)
     holding: pd.Series  # ticker held at the end of each day
     trades: pd.DataFrame  # one row per switch
     ranks_of_holding: pd.Series = field(default_factory=pd.Series)
     tax_paid: float = 0.0  # capital gains tax paid on switches along the way
     exit_tax: float = 0.0  # tax that would be due if you sold everything on the last day
+    nav: pd.Series = field(default_factory=pd.Series)  # value of one unit: performance without the cash flows
+    flows: pd.Series = field(default_factory=pd.Series)  # money paid in on each day (first day = starting money)
+    gains_by_tax_year: dict = field(default_factory=dict)  # net realised gain per tax year
 
 
 @dataclass(frozen=True)
 class TaxConfig:
     """Capital gains tax on realised gains.
 
-    Every switch is a sale, so any gain since you bought that company is taxed right
-    then; the tax leaves the portfolio and stops compounding. Losses are carried
-    forward and offset later gains. Positions held less than ``short_term_days`` can
-    be taxed at a different (US-style short-term) rate.
+    Every switch is a sale, so any gain since you bought that company is taxed;
+    the tax leaves the portfolio and stops compounding.
+
+    * ``allowance``: tax-free gains per tax year (UK annual exempt amount: 3,000).
+      Unused allowance is lost at the end of the year.
+    * Net losses in a tax year are carried forward and only used to bring later
+      years' gains down to the allowance (UK rules).
+    * ``year_start`` ("MM-DD"): when the tax year begins (UK: "04-06").
+    * Positions held less than ``short_term_days`` can be taxed at a different
+      (US-style short-term) rate.
     """
     rate: float = 0.0
     short_term_rate: float | None = None
     short_term_days: int = 365
+    allowance: float = 0.0
+    year_start: str = "01-01"
 
     def rate_for(self, held_days: int) -> float:
         if self.short_term_rate is not None and held_days < self.short_term_days:
@@ -82,6 +93,62 @@ class TaxConfig:
     @property
     def active(self) -> bool:
         return self.rate > 0 or bool(self.short_term_rate)
+
+
+class TaxLedger:
+    """Keeps track of one tax year's realised gains, the allowance and carried losses."""
+
+    def __init__(self, tax: TaxConfig):
+        self.tax = tax
+        m, d = (int(x) for x in tax.year_start.split("-"))
+        self._start = (m, d)
+        self.year: int | None = None
+        self.realised = 0.0  # net gains realised so far this tax year
+        self.charged = 0.0  # tax charged so far this tax year
+        self.carry = 0.0  # losses carried forward from earlier years
+        self.by_year: dict[int, float] = {}  # net realised gain per tax year (for reports)
+
+    def _tax_year(self, d: pd.Timestamp) -> int:
+        return d.year if (d.month, d.day) >= self._start else d.year - 1
+
+    def _roll(self, d: pd.Timestamp) -> None:
+        y = self._tax_year(d)
+        if self.year is None:
+            self.year = y
+        if y == self.year:
+            return
+        if self.realised < 0:
+            self.carry -= self.realised
+        elif self.realised > self.tax.allowance:
+            self.carry -= min(self.carry, self.realised - self.tax.allowance)
+        self.year, self.realised, self.charged = y, 0.0, 0.0
+
+    def _taxable(self, net: float) -> float:
+        over = net - self.tax.allowance
+        return max(0.0, over - self.carry) if over > 0 else 0.0
+
+    def realise(self, d: pd.Timestamp, gain: float, held_days: int) -> float:
+        """Tax due because of this sale (negative = a later loss in the same year gives tax back)."""
+        self._roll(d)
+        before = self._taxable(self.realised)
+        self.realised += gain
+        self.by_year[self.year] = self.realised
+        due = (self._taxable(self.realised) - before) * self.tax.rate_for(held_days)
+        due = max(due, -self.charged)
+        self.charged += due
+        return due
+
+    def preview(self, d: pd.Timestamp, gain: float, held_days: int) -> float:
+        """Tax that a sale would cost, without recording it."""
+        import copy
+        return copy.deepcopy(self).realise(d, gain, held_days)
+
+
+def contribution_days(dates: pd.DatetimeIndex) -> np.ndarray:
+    """First trading day of each month, except the very first day of the backtest."""
+    month = dates.to_period("M")
+    first = np.r_[False, month[1:] != month[:-1]]
+    return first
 
 
 def membership_mask(index: IndexDef, dates: pd.DatetimeIndex, tickers: list[str]) -> pd.DataFrame:
@@ -101,7 +168,7 @@ def daily_ranks(caps: pd.DataFrame, eligible: pd.DataFrame) -> pd.DataFrame:
 
 
 def run_strategy(cfg: StrategyConfig, index: IndexDef, md: MarketData, start: str, end: str | None = None,
-                 capital: float = 10_000.0, tax: TaxConfig = TaxConfig()) -> StrategyResult:
+                 capital: float = 10_000.0, tax: TaxConfig = TaxConfig(), monthly: float = 0.0) -> StrategyResult:
     caps = md.market_cap.loc[start:end]
     tr = md.total_return.loc[start:end]
     dates = caps.index
@@ -131,18 +198,13 @@ def run_strategy(cfg: StrategyConfig, index: IndexDef, md: MarketData, start: st
     trades = []
     basis = 0.0  # cost basis of the current position
     bought_on: pd.Timestamp | None = None
-    loss_carry = 0.0
+    ledger = TaxLedger(tax)
     tax_paid = 0.0
-
-    def realise(gain: float, held_days: int) -> float:
-        """Tax due on a realised gain, using up carried-forward losses first."""
-        nonlocal loss_carry
-        if gain <= 0:
-            loss_carry -= gain
-            return 0.0
-        used = min(loss_carry, gain)
-        loss_carry -= used
-        return (gain - used) * tax.rate_for(held_days)
+    units = capital  # unit value starts at 1.0
+    nav = np.empty(len(dates))
+    flows = np.zeros(len(dates))
+    flows[0] = capital
+    pay_in = contribution_days(dates) if monthly else np.zeros(len(dates), dtype=bool)
 
     rank_vals = ranks.to_numpy()
     col = {t: i for i, t in enumerate(tickers)}
@@ -152,6 +214,12 @@ def run_strategy(cfg: StrategyConfig, index: IndexDef, md: MarketData, start: st
         # 1) earn today's return on what we held overnight
         if held is not None:
             value *= 1.0 + ret_vals[i, col[held]]
+        if pay_in[i]:  # monthly contribution, buys more of whatever we hold
+            units += monthly / (value / units)
+            value += monthly
+            flows[i] = monthly
+            if held is not None:
+                basis += monthly
 
         # 2) decide at today's close
         today_leader = leader.iloc[i]
@@ -181,7 +249,7 @@ def run_strategy(cfg: StrategyConfig, index: IndexDef, md: MarketData, start: st
             tax_due = 0.0
             if held is not None:
                 value *= 1.0 - cost / 2  # selling cost
-                tax_due = realise(value - basis, (d - bought_on).days)
+                tax_due = ledger.realise(d, value - basis, (d - bought_on).days)
                 value -= tax_due
                 tax_paid += tax_due
             value *= 1.0 - cost / 2  # buying cost
@@ -190,6 +258,7 @@ def run_strategy(cfg: StrategyConfig, index: IndexDef, md: MarketData, start: st
             held, basis, bought_on = target, value, d
 
         equity[i] = value
+        nav[i] = value / units
         holding.append(held)
         if held is not None:
             held_rank[i] = rank_vals[i, col[held]]
@@ -201,10 +270,22 @@ def run_strategy(cfg: StrategyConfig, index: IndexDef, md: MarketData, start: st
         trades=pd.DataFrame(trades, columns=["date", "sold", "bought", "reason", "tax_paid", "value_after"]),
         ranks_of_holding=pd.Series(held_rank, index=dates),
         tax_paid=tax_paid,
-        exit_tax=realise(value - basis, (dates[-1] - bought_on).days) if held is not None else 0.0,
+        exit_tax=ledger.preview(dates[-1], value - basis, (dates[-1] - bought_on).days) if held is not None else 0.0,
+        nav=pd.Series(nav, index=dates, name=cfg.name),
+        flows=pd.Series(flows, index=dates),
+        gains_by_tax_year=dict(ledger.by_year),
     )
 
 
-def benchmark_equity(md: MarketData, start: str, end: str | None = None, capital: float = 10_000.0) -> pd.Series:
+def benchmark_equity(md: MarketData, start: str, end: str | None = None, capital: float = 10_000.0,
+                     monthly: float = 0.0) -> tuple[pd.Series, pd.Series]:
+    """Buy-and-hold the index, adding ``monthly`` on the first trading day of each month.
+
+    Returns (money in the account, money paid in per day)."""
     b = md.benchmark.loc[start:end].ffill().dropna()
-    return b / b.iloc[0] * capital
+    flows = pd.Series(0.0, index=b.index)
+    flows.iloc[0] = capital
+    if monthly:
+        flows[contribution_days(b.index)] = monthly
+    units = (flows / b).cumsum()
+    return units * b, flows

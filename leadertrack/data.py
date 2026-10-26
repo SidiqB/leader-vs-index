@@ -253,13 +253,13 @@ def shares_history(ticker: str, prices: pd.DataFrame, offline: bool = False) -> 
     return daily, " + ".join(note) + (f"; trend-estimated before {first_known:%Y}" if first_known > idx[0] else "")
 
 
-def _backcast(daily: pd.Series, known: pd.Series, fit_years: float = 3, max_rate: float = 0.08,
-              max_years: float = 5) -> pd.Series:
+def _backcast(daily: pd.Series, known: pd.Series, fit_years: float = 3, max_rate: float = 0.05,
+              max_years: float = 3) -> pd.Series:
     """Estimate share counts before the first known one.
 
     Companies buy back (or issue) shares at a fairly steady pace, so instead of holding
     the earliest count flat we extend the trend of the first few known years backwards
-    (capped at +/-8% a year, for at most 5 years, then flat).
+    (capped at +/-5% a year, for at most 3 years, then flat).
     """
     first = known.index[0]
     early = known[known.index <= first + pd.Timedelta(days=365 * fit_years)]

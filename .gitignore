@@ -8,3 +8,4 @@ data_cache/
 results/*/race.gif
 !results/sp500/race.gif
 results_tax20/*/race.gif
+results_monthly100_uk/*/race.gif

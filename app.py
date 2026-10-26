@@ -14,8 +14,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from leadertrack.analysis import (holding_periods, leader_history, rolling_excess, run_backtest, summary_table,
-                                  time_held, yearly_returns)
+from leadertrack.analysis import (holding_periods, leader_history, realised_gains_by_tax_year, rolling_excess,
+                                  run_backtest, summary_table, time_held, yearly_returns)
 from leadertrack.data import load_market_data
 from leadertrack.indices import INDICES
 from leadertrack.plots import INDEX_INK, OTHER, SERIES
@@ -56,7 +56,9 @@ st.sidebar.title("📈 Leader vs Index")
 key = st.sidebar.selectbox("Index", list(INDICES), format_func=lambda k: INDICES[k].name)
 years = st.sidebar.slider("Years to backtest", 3, 30, 20)
 start = (pd.Timestamp.today().normalize() - pd.DateOffset(years=years)).date()
-capital = st.sidebar.number_input("Starting money", 1_000, 10_000_000, 10_000, step=1_000)
+capital = st.sidebar.number_input("Starting money", 100, 10_000_000, 10_000, step=100)
+monthly = st.sidebar.number_input("Add every month", 0, 100_000, 0, step=50,
+                                  help="Paid in on the first trading day of each month, into whatever you hold")
 
 st.sidebar.subheader("Model 1 · Naive")
 st.sidebar.caption("Switch every single time a new company becomes #1.")
@@ -74,10 +76,14 @@ st.sidebar.subheader("Tax")
 st.sidebar.caption("Every switch is a sale, so gains get taxed along the way (losses carry forward). "
                    "The index is buy-and-hold: it only pays once, when you sell at the end. "
                    "Set 0 for a tax-free account (ISA, IRA/401k).")
-tax_rate = st.sidebar.slider("Capital gains tax %", 0, 45, 0)
+uk = st.sidebar.toggle("UK rules (£3,000 tax-free allowance, tax year from 6 April)", False)
+tax_rate = st.sidebar.slider("Capital gains tax %", 0, 45, 24 if uk else 0,
+                             help="UK 2026/27: 18% basic rate, 24% higher rate")
+allowance = st.sidebar.number_input("Tax-free gains per tax year", 0, 100_000, 3000 if uk else 0, step=500)
 use_short = st.sidebar.toggle("Higher rate if held under a year (US-style)", False)
 short_rate = st.sidebar.slider("Short-term rate %", 0, 50, 37, disabled=not use_short)
-tax = TaxConfig(rate=tax_rate / 100, short_term_rate=short_rate / 100 if use_short else None)
+tax = TaxConfig(rate=tax_rate / 100, short_term_rate=short_rate / 100 if use_short else None,
+                allowance=float(allowance), year_start="04-06" if uk else "01-01")
 
 st.sidebar.subheader("Animation")
 animate = st.sidebar.toggle("Play the race chart", True)
@@ -93,9 +99,11 @@ for d in sorted(confirm):
 idx = INDICES[key]
 with st.spinner(f"Downloading {idx.name} data (first run takes ~30s, then it's cached)…"):
     md = market_data(key)
-bt = run_backtest(key, start=str(start), capital=float(capital), strategies=tuple(strategies), md=md, tax=tax)
+bt = run_backtest(key, start=str(start), capital=float(capital), strategies=tuple(strategies), md=md, tax=tax,
+                  monthly=float(monthly))
 # Same run without tax, for the before/after comparison
-bt_pre = (run_backtest(key, start=str(start), capital=float(capital), strategies=tuple(strategies), md=md)
+bt_pre = (run_backtest(key, start=str(start), capital=float(capital), strategies=tuple(strategies), md=md,
+                       monthly=float(monthly))
           if tax.active else bt)
 eq = bt.equity
 colors = colors_for(bt)
@@ -131,9 +139,13 @@ def race_figure(n: int):
                                  marker=dict(color=colors[col], size=10, line=dict(width=2, color="white")),
                                  text=[f"  {money}{sl[col].iloc[-1]:,.0f}{tag}"], textposition="middle right",
                                  hoverinfo="skip"))
+    if monthly:
+        paid = bt.bench_flows.cumsum().reindex(sl.index).ffill()
+        fig.add_trace(go.Scatter(x=paid.index, y=paid, name="Money paid in", mode="lines",
+                                 line=dict(color="gray", width=1.5, dash="dash")))
     fig.add_annotation(text=f"<b>{d:%b %Y}</b>", x=0.01, y=0.97, xref="paper", yref="paper", showarrow=False,
                        font=dict(size=28, color="gray"), xanchor="left")
-    base_layout(fig, f"Growth of {money}{capital:,.0f}", height=520, log=True, money=money)
+    base_layout(fig, f"Growth of {money}{capital:,.0f}" + (f" + {money}{monthly:,.0f} a month" if monthly else ""), height=520, log=True, money=money)
     pad = (eq.index[-1] - eq.index[0]) * 0.3
     fig.update_xaxes(range=[eq.index[0], eq.index[-1] + pad])
     fig.update_yaxes(range=[np.log10(eq.min().min() * 0.85), np.log10(eq.max().max() * 1.2)])
@@ -151,8 +163,13 @@ race.plotly_chart(race_figure(len(eq)), use_container_width=True, key="race_fina
 summary = summary_table(bt)
 pre_final = summary_table(bt_pre)["Final value"]
 cols = st.columns(len(summary))
-val_col, cagr_col, vs_col = (("After-tax value if sold today", "After-tax CAGR", "After-tax CAGR vs index")
-                             if tax.active else ("Final value", "CAGR", "CAGR vs index"))
+val_col, cagr_col, vs_col = (("After-tax value if sold today", "After-tax annual return",
+                              "After-tax annual return vs index") if tax.active
+                             else ("Final value", "Annual return on your money", "Annual return vs index"))
+if monthly:
+    st.caption(f"You paid in **{money}{bt.paid_in():,.0f}** in total ({money}{capital:,.0f} at the start, then "
+               f"{money}{monthly:,.0f} a month). 'A year' figures are the annual return on your money, "
+               "allowing for when each payment went in.".replace("$", "\\$"))
 if tax.active:
     st.caption(f"Headline numbers are **after {tax_rate}% capital gains tax**, as if you sold everything today.")
 for c, (name, row) in zip(cols, summary.iterrows()):
@@ -179,7 +196,8 @@ with tab1:
         st.plotly_chart(base_layout(fig, "What you'd actually keep: before vs after capital gains tax", money=money),
                         use_container_width=True)
     a, b = st.columns(2)
-    dd = eq / eq.cummax() - 1
+    nav = bt.nav
+    dd = nav / nav.cummax() - 1
     fig = go.Figure([go.Scatter(x=dd.index, y=dd[c], name=c, line=dict(color=colors[c], width=1.6)) for c in dd])
     a.plotly_chart(base_layout(fig, "Drawdown from previous peak", pct=True), use_container_width=True)
 
@@ -208,8 +226,9 @@ with tab1:
 with tab2:
     st.subheader("Performance summary")
     pct_cols = ["Total return", "CAGR", "CAGR vs index", "Volatility", "Max drawdown", "Best year", "Worst year",
-                "After-tax CAGR", "After-tax CAGR vs index"]
-    fmt = {c: "{:.1%}" for c in pct_cols} | {"Final value": money + "{:,.0f}", "Sharpe (rf=0)": "{:.2f}",
+                "Annual return on your money", "Annual return vs index", "After-tax annual return",
+                "After-tax annual return vs index"]
+    fmt = {c: "{:.1%}" for c in pct_cols} | {"Final value": money + "{:,.0f}", "Paid in": money + "{:,.0f}", "Sharpe (rf=0)": "{:.2f}",
                                               "Sortino": "{:.2f}", "Calmar": "{:.2f}", "Trades": "{:.0f}",
                                               "Distinct companies held": "{:.0f}",
                                               "Tax paid on switches": money + "{:,.0f}",
@@ -220,6 +239,13 @@ with tab2:
     st.dataframe(yr.style.format("{:+.1%}").background_gradient(cmap="RdYlGn", vmin=-0.4, vmax=0.4, axis=None),
                  use_container_width=True, height=min(40 + 35 * len(yr), 760))
 
+    if tax.active:
+        st.subheader("Gains realised (sold at a profit) per tax year")
+        st.caption(f"Years above the {money}{allowance:,.0f} tax-free allowance owe tax.".replace("$", "\\$"))
+        gains = realised_gains_by_tax_year(bt)
+        st.dataframe(gains.style.format(money + "{:,.0f}").map(
+            lambda v: "background-color: rgba(227,73,72,0.25)" if v > allowance else ""), use_container_width=True)
+
     st.subheader("Share of time spent in each company")
     st.dataframe(time_held(bt).style.format("{:.0%}"), use_container_width=True)
 
@@ -229,7 +255,7 @@ with tab3:
     for r in bt.results:
         seen += [t for t in r.holding.dropna().unique() if t not in seen]
     cc = {t: (SERIES[i] if i < len(SERIES) else OTHER) for i, t in enumerate(seen)}
-    tl = pd.concat([holding_periods(r, bt.benchmark, names).assign(Strategy=r.config.name) for r in bt.results])
+    tl = pd.concat([holding_periods(r, bt.nav[bt.benchmark_label], names).assign(Strategy=r.config.name) for r in bt.results])
     tl["From"], tl["To"] = pd.to_datetime(tl["From"]), pd.to_datetime(tl["To"])
     fig = px.timeline(tl, x_start="From", x_end="To", y="Strategy", color="Company",
                       color_discrete_map={names.get(t, t): c for t, c in cc.items()},
@@ -241,7 +267,7 @@ with tab3:
 
     pick = st.selectbox("Strategy", [r.config.name for r in bt.results], index=len(bt.results) - 1)
     r = next(r for r in bt.results if r.config.name == pick)
-    hp = holding_periods(r, bt.benchmark, names)
+    hp = holding_periods(r, bt.nav[bt.benchmark_label], names)
     st.markdown(f"**Holding periods — {pick}** ({len(r.trades)} trades)")
     st.dataframe(hp.style.format({"Return": "{:+.1%}", "Index return": "{:+.1%}", "Excess": "{:+.1%}"}),
                  use_container_width=True, hide_index=True)

@@ -15,8 +15,8 @@ from pathlib import Path
 import pandas as pd
 from tabulate import tabulate
 
-from leadertrack.analysis import (fmt_summary, holding_periods, leader_history, run_backtest, summary_table,
-                                  tax_comparison, time_held, yearly_returns)
+from leadertrack.analysis import (fmt_summary, holding_periods, leader_history, realised_gains_by_tax_year,
+                                  run_backtest, summary_table, tax_comparison, time_held, yearly_returns)
 from leadertrack.indices import INDICES
 from leadertrack.strategies import StrategyConfig, TaxConfig
 
@@ -54,9 +54,10 @@ def run_one(key: str, a) -> None:
 
     print(f"\n=== {INDICES[key].name} ===")
     tax = TaxConfig(rate=a.tax_rate / 100,
-                    short_term_rate=None if a.short_term_tax_rate is None else a.short_term_tax_rate / 100)
+                    short_term_rate=None if a.short_term_tax_rate is None else a.short_term_tax_rate / 100,
+                    allowance=a.tax_allowance, year_start=a.tax_year_start)
     bt = run_backtest(key, start=a.start, end=a.end, capital=a.capital, strategies=build_strategies(a),
-                      offline=a.offline, tax=tax, progress=lambda f, msg: print(f"\r  {msg:<40}", end="", flush=True))
+                      offline=a.offline, tax=tax, monthly=a.monthly, progress=lambda f, msg: print(f"\r  {msg:<40}", end="", flush=True))
     print("\r" + " " * 50)
     out = ROOT / a.out / key
     out.mkdir(parents=True, exist_ok=True)
@@ -66,24 +67,38 @@ def run_one(key: str, a) -> None:
     shown = fmt_summary(summary, bt.capital)
     cols = ["Final value", "Total return", "CAGR", "CAGR vs index", "Volatility", "Max drawdown", "Sharpe (rf=0)",
             "Trades"]
+    if a.monthly:
+        cols = ["Paid in", "Final value", "Annual return on your money", "CAGR", "CAGR vs index", "Max drawdown",
+                "Trades"]
+        print(f"Paying in {a.capital:,.0f} at the start, then {a.monthly:,.0f} every month. "
+              "CAGR/drawdown measure the strategy itself; 'annual return on your money' includes the timing "
+              "of your deposits.")
     if tax.active:
         print("Values below already have the tax paid on each switch taken out (before the final sale).")
     print(tabulate(shown[cols], headers="keys", tablefmt="rounded_outline"))
     taxcmp = None
     if tax.active:
         untaxed = run_backtest(key, start=a.start, end=a.end, capital=a.capital, strategies=build_strategies(a),
-                               md=bt.md)
+                               md=bt.md, monthly=a.monthly)
         taxcmp = tax_comparison(bt, untaxed)
         taxcmp.to_csv(out / "tax_comparison.csv")
         taxcmp_fmt = taxcmp.copy().astype(object)
         for c in taxcmp:
             taxcmp_fmt[c] = taxcmp[c].map((lambda v: f"{v:+.1%}") if "vs index" in c else
-                                          (lambda v: f"{v:.1%}") if ("CAGR" in c or c == "Lost to tax") else
+                                          (lambda v: f"{v:.1%}") if ("return" in c or c == "Lost to tax") else
                                           (lambda v: f"{v:,.0f}"))
         print(f"\nBefore vs after capital gains tax ({a.tax_rate:g}%"
               + (f", {a.short_term_tax_rate:g}% if held < 1 year" if a.short_term_tax_rate is not None else "")
               + "). The strategies pay tax at every switch; the index only pays once, when you sell at the end.")
         print(tabulate(taxcmp_fmt, headers="keys", tablefmt="rounded_outline"))
+        gains = realised_gains_by_tax_year(bt)
+        gains.to_csv(out / "realised_gains_by_tax_year.csv")
+        if a.tax_allowance:
+            over = (gains > a.tax_allowance).sum()
+            print(f"\nNet gains realised per tax year (tax-free allowance {a.tax_allowance:,.0f}); "
+                  "years above the allowance owe tax:")
+            print(tabulate(gains.round(0), headers="keys", tablefmt="simple", floatfmt=",.0f"))
+            print("Tax years over the allowance: " + ", ".join(f"{k}: {v}" for k, v in over.items()))
     print("\nCalendar-year returns")
     print(tabulate((yearly * 100).round(1), headers="keys", tablefmt="simple", floatfmt="+.1f"))
 
@@ -103,7 +118,7 @@ def run_one(key: str, a) -> None:
           (yearly * 100).round(1).to_markdown(), "\n## Share of time in each company\n",
           (time_held(bt) * 100).round(1).to_markdown()]
     for r in bt.results:
-        hp = holding_periods(r, bt.benchmark, bt.names())
+        hp = holding_periods(r, bt.nav[bt.benchmark_label], bt.names())
         hp.to_csv(out / f"holdings_{slug(r.config.name)}.csv", index=False)
         r.trades.to_csv(out / f"trades_{slug(r.config.name)}.csv", index=False)
         if r.config.kind == "patient":
@@ -137,10 +152,19 @@ def main(argv=None):
                    help="capital gains tax %% charged on each switch's realised gain (e.g. 20)")
     p.add_argument("--short-term-tax-rate", type=float, default=None,
                    help="US-style rate %% for gains on positions held under a year (e.g. 37)")
+    p.add_argument("--tax-allowance", type=float, default=0,
+                   help="tax-free gains per tax year (UK annual exempt amount is 3000)")
+    p.add_argument("--tax-year-start", default="01-01", help="MM-DD the tax year starts (UK: 04-06)")
+    p.add_argument("--uk", choices=["basic", "higher"],
+                   help="UK capital gains tax preset: 18%% (basic) or 24%% (higher), 3,000 allowance, April tax year")
+    p.add_argument("--monthly", type=float, default=0, help="amount paid in on the first trading day of each month")
     p.add_argument("--out", default="results", help="output folder")
     p.add_argument("--no-show", action="store_true", help="don't open the animation window (still saves the GIF)")
     p.add_argument("--offline", action="store_true", help="use cached data only")
     a = p.parse_args(argv)
+    if a.uk:
+        a.tax_rate = {"basic": 18, "higher": 24}[a.uk]
+        a.tax_allowance, a.tax_year_start = 3000, "04-06"
     if a.start is None:
         a.start = str((pd.Timestamp.today().normalize() - pd.DateOffset(days=round(a.years * 365.25))).date())
 

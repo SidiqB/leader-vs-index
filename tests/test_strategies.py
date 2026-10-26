@@ -91,3 +91,30 @@ def test_short_term_rate():
     from leadertrack.strategies import TaxConfig
     t = TaxConfig(rate=0.2, short_term_rate=0.37)
     assert t.rate_for(30) == 0.37 and t.rate_for(400) == 0.2
+
+
+def test_allowance_and_tax_year():
+    from leadertrack.strategies import TaxConfig, TaxLedger
+    led = TaxLedger(TaxConfig(rate=0.2, allowance=3000, year_start="04-06"))
+    assert led.realise(pd.Timestamp("2024-05-01"), 2500, 400) == 0  # inside allowance
+    assert np.isclose(led.realise(pd.Timestamp("2024-06-01"), 1500, 400), 200)  # 1,000 over
+    # new tax year (after 6 April): allowance resets
+    assert led.realise(pd.Timestamp("2025-04-10"), 3000, 400) == 0
+    # a net loss year is carried forward but only used down to the allowance
+    led.realise(pd.Timestamp("2026-05-01"), -2000, 400)
+    assert led.realise(pd.Timestamp("2027-05-01"), 4000, 400) == 0  # 4,000 - 3,000 allowance - 1,000 of the loss
+    assert np.isclose(led.carry, 2000)  # carry only applied at year end
+    assert np.isclose(led.realise(pd.Timestamp("2028-05-01"), 4000, 400), 0)  # remaining 1,000 used now
+
+
+def test_monthly_contributions_and_xirr():
+    from leadertrack.analysis import xirr
+    md = make_md({"A": [10] * 70, "B": [9] * 70, "C": [1] * 70})
+    r = run_strategy(NAIVE, IDX, md, "2020-01-01", capital=100, monthly=100)
+    months = md.market_cap.index.to_period("M").nunique()
+    assert np.isclose(r.equity.iloc[-1], 100 * months)  # flat prices: value = money paid in
+    assert np.isclose(r.nav.iloc[-1], 1.0)
+    assert abs(xirr(r.flows, r.equity.iloc[-1])) < 1e-6
+    # 10% a year on a single deposit
+    f = pd.Series([100.0, 0.0], index=pd.to_datetime(["2020-01-01", "2021-01-01"]))
+    assert np.isclose(xirr(f, 110.0), 0.10 * 365.25 / 366, atol=1e-3)

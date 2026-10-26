@@ -68,7 +68,8 @@ def animate(bt: Backtest, out_path: Path | None = None, show: bool = True, frame
     ax.set_ylim(eq.min().min() * 0.85, eq.max().max() * 1.25)
     fig.suptitle(f"Always own the #1 company vs the {bt.index.name}", x=0.06, ha="left",
                  fontsize=15, fontweight="bold", color=TEXT)
-    sub = fig.text(0.06, 0.905, f"Growth of {bt.capital:,.0f} {bt.index.currency}, dividends reinvested. "
+    sub = fig.text(0.06, 0.905, f"Growth of {bt.capital:,.0f} {bt.index.currency}"
+                   + (f" + {bt.monthly:,.0f} a month" if bt.monthly else "") + ", dividends reinvested. "
                    "[brackets] = company held right now", fontsize=10, color=TEXT2)
     date_txt = ax.text(0.02, 0.95, "", transform=ax.transAxes, fontsize=20, fontweight="bold", color=TEXT2, alpha=0.6,
                        va="top")
@@ -115,14 +116,18 @@ def growth_chart(bt: Backtest, ax):
         ax.plot(eq.index, eq[col], color=colors[col], lw=2.6 if col == bt.benchmark_label else 2, label=col)
         ax.annotate(f"{eq[col].iloc[-1]:,.0f}", (eq.index[-1], eq[col].iloc[-1]), xytext=(4, 0),
                     textcoords="offset points", fontsize=8, color=TEXT, va="center")
+    if bt.monthly:
+        paid = bt.bench_flows.cumsum().reindex(eq.index).ffill()
+        ax.plot(paid.index, paid, color=TEXT2, lw=1.2, ls="--", label="Money paid in")
     ax.set_yscale("log")
     _money(ax, bt.index.currency)
-    ax.set_title(f"Growth of {bt.capital:,.0f} (log scale)", loc="left")
+    ax.set_title(f"Growth of {bt.capital:,.0f}" + (f" + {bt.monthly:,.0f} a month" if bt.monthly else "")
+                 + " (log scale)", loc="left")
     ax.legend(fontsize=8, loc="upper left")
 
 
 def drawdown_chart(bt: Backtest, ax):
-    eq, colors = bt.equity, series_colors(bt)
+    eq, colors = bt.nav, series_colors(bt)
     dd = eq / eq.cummax() - 1
     for col in dd.columns:
         ax.plot(dd.index, dd[col], color=colors[col], lw=1.5 if col != bt.benchmark_label else 2.2, label=col)
